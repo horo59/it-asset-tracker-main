@@ -1,0 +1,50 @@
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: it-asset-tracker-test-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-it_asset_tracker}
+      POSTGRES_USER: ${SPRING_DATASOURCE_USERNAME:?Set SPRING_DATASOURCE_USERNAME in your environment}
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?Set SPRING_DATASOURCE_PASSWORD in your environment}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - asset_tracker_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - asset-tracker-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: it-asset-tracker-test-app
+    environment:
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/${POSTGRES_DB:-it_asset_tracker}}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:?Set SPRING_DATASOURCE_USERNAME in your environment}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?Set SPRING_DATASOURCE_PASSWORD in your environment}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your environment}
+      APP_BOOTSTRAP_ADMIN_USERNAME: ${APP_BOOTSTRAP_ADMIN_USERNAME:?Set APP_BOOTSTRAP_ADMIN_USERNAME in your environment}
+      APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:?Set APP_BOOTSTRAP_ADMIN_PASSWORD in your environment}
+     
+    ports:
+      - "8083:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - asset-tracker-network
+
+volumes:
+  asset_tracker_test_data:
+
+networks:
+  asset-tracker-network:
+    driver: bridge
