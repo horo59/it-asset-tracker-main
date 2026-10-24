@@ -1,24 +1,23 @@
 
 package com.example.it_asset_tracker.service;
+
+import com.example.it_asset_tracker.dto.asset.AssetResponse;
+import com.example.it_asset_tracker.dto.asset.CreateAssetRequest;
+import com.example.it_asset_tracker.entity.AppUser;
 import com.example.it_asset_tracker.entity.Asset;
+import com.example.it_asset_tracker.entity.Category;
 import com.example.it_asset_tracker.enums.AssetStatus;
+import com.example.it_asset_tracker.enums.UserRole;
+import com.example.it_asset_tracker.repository.AppUserRepository;
 import com.example.it_asset_tracker.repository.AssetRepository;
-
-
-import java.util.List;
+import com.example.it_asset_tracker.repository.CategoryRepository;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.example.it_asset_tracker.dto.asset.AssetResponse;
-import com.example.it_asset_tracker.dto.asset.CreateAssetRequest;
-import com.example.it_asset_tracker.entity.Category;
-import com.example.it_asset_tracker.repository.CategoryRepository;
-import com.example.it_asset_tracker.entity.AppUser;
-import com.example.it_asset_tracker.repository.AppUserRepository;
-import com.example.it_asset_tracker.enums.UserRole;
+import java.util.List;
 
 @Service
 @Transactional(readOnly = true)
@@ -32,12 +31,15 @@ public class AssetService {
             AssetRepository assetRepository,
             CategoryRepository categoryRepository,
             AppUserRepository userRepository) {
+
         this.assetRepository = assetRepository;
         this.categoryRepository = categoryRepository;
         this.userRepository = userRepository;
     }
 
+    // Get all assets, optionally filtered by status.
     public List<AssetResponse> getAllAssets(AssetStatus status) {
+
         List<Asset> assets = status == null
                 ? assetRepository.findAll()
                 : assetRepository.findByStatus(status);
@@ -47,8 +49,18 @@ public class AssetService {
                 .toList();
     }
 
+    // Get one asset by ID and return its DTO.
+    public AssetResponse getAssetById(Long id) {
+
+        Asset asset = getAssetEntityById(id);
+
+        return AssetResponse.from(asset);
+    }
+
+    // Create a new asset.
     @Transactional
     public AssetResponse createAsset(CreateAssetRequest request) {
+
         String serialNumber = request.serialNumber().trim();
 
         if (assetRepository.existsBySerialNumber(serialNumber)) {
@@ -57,7 +69,8 @@ public class AssetService {
                     "An asset with this serial number already exists");
         }
 
-        Category category = categoryRepository.findById(request.categoryId())
+        Category category = categoryRepository
+                .findById(request.categoryId())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "Category not found"));
@@ -72,15 +85,19 @@ public class AssetService {
         return AssetResponse.from(savedAsset);
     }
 
+    // Find an asset entity or return 404 if it does not exist.
     public Asset getAssetEntityById(Long id) {
+
         return assetRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "Asset not found"));
     }
 
+    // Assign an available asset to a staff member.
     @Transactional
     public AssetResponse assignAsset(Long assetId, Long userId) {
+
         Asset asset = getAssetEntityById(assetId);
 
         if (asset.getStatus() != AssetStatus.AVAILABLE) {
@@ -105,8 +122,10 @@ public class AssetService {
         return AssetResponse.from(assetRepository.save(asset));
     }
 
+    // Return an assigned asset to available inventory.
     @Transactional
     public AssetResponse returnAsset(Long assetId) {
+
         Asset asset = getAssetEntityById(assetId);
 
         if (asset.getStatus() != AssetStatus.ASSIGNED) {
@@ -120,14 +139,19 @@ public class AssetService {
         return AssetResponse.from(assetRepository.save(asset));
     }
 
+    // Delete an existing asset.
     @Transactional
     public void deleteAsset(Long assetId) {
+
         Asset asset = getAssetEntityById(assetId);
+
         assetRepository.delete(asset);
     }
 
+    // Get assets assigned to a particular username.
     public List<AssetResponse> getAssetsAssignedToUserByUsername(
             String username) {
+
         AppUser user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
