@@ -1,16 +1,18 @@
 
 package com.example.it_asset_tracker.config;
 
-
-
 import java.io.IOException;
 import java.time.OffsetDateTime;
+import java.util.Base64;
+import java.util.List;
 import java.util.Map;
+
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
-import java.util.Base64;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nimbusds.jose.jwk.source.ImmutableSecret;
+
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -33,7 +35,9 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
 
-import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
@@ -89,16 +93,56 @@ public class SecurityConfig {
         JwtGrantedAuthoritiesConverter authoritiesConverter =
                 new JwtGrantedAuthoritiesConverter();
 
-        // AuthService stores authorities such as ROLE_ADMIN in the JWT.
+        // Read authorities such as ROLE_ADMIN from the JWT.
         authoritiesConverter.setAuthoritiesClaimName("authorities");
         authoritiesConverter.setAuthorityPrefix("");
 
         JwtAuthenticationConverter converter =
                 new JwtAuthenticationConverter();
 
-        converter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);
+        converter.setJwtGrantedAuthoritiesConverter(
+                authoritiesConverter
+        );
 
         return converter;
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+
+        // Allow the React development server.
+        configuration.setAllowedOrigins(
+                List.of("http://localhost:5173")
+        );
+
+        configuration.setAllowedMethods(
+                List.of(
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "PATCH",
+                        "DELETE",
+                        "OPTIONS"
+                )
+        );
+
+        configuration.setAllowedHeaders(
+                List.of(
+                        "Authorization",
+                        "Content-Type"
+                )
+        );
+
+        configuration.setAllowCredentials(false);
+        configuration.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source =
+                new UrlBasedCorsConfigurationSource();
+
+        source.registerCorsConfiguration("/**", configuration);
+
+        return source;
     }
 
     @Bean
@@ -109,10 +153,17 @@ public class SecurityConfig {
     ) throws Exception {
 
         http
+            // Process CORS before enforcing authentication rules.
+            .cors(cors -> cors.configurationSource(
+                    corsConfigurationSource()
+            ))
+
             .csrf(csrf -> csrf.disable())
 
             .sessionManagement(session -> session
-                    .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                    .sessionCreationPolicy(
+                            SessionCreationPolicy.STATELESS
+                    )
             )
 
             .httpBasic(basic -> basic.disable())
@@ -120,37 +171,40 @@ public class SecurityConfig {
             .formLogin(form -> form.disable())
 
             .exceptionHandling(errors -> errors
-                    .authenticationEntryPoint((request, response, exception) ->
-                            writeSecurityError(
-                                    objectMapper,
-                                    request,
-                                    response,
-                                    HttpServletResponse.SC_UNAUTHORIZED,
-                                    "Unauthorized",
-                                    "Authentication is required."
-                            )
+                    .authenticationEntryPoint(
+                            (request, response, exception) ->
+                                    writeSecurityError(
+                                            objectMapper,
+                                            request,
+                                            response,
+                                            HttpServletResponse.SC_UNAUTHORIZED,
+                                            "Unauthorized",
+                                            "Authentication is required."
+                                    )
                     )
-                    .accessDeniedHandler((request, response, exception) ->
-                            writeSecurityError(
-                                    objectMapper,
-                                    request,
-                                    response,
-                                    HttpServletResponse.SC_FORBIDDEN,
-                                    "Forbidden",
-                                    "You do not have permission to access this resource."
-                            )
+                    .accessDeniedHandler(
+                            (request, response, exception) ->
+                                    writeSecurityError(
+                                            objectMapper,
+                                            request,
+                                            response,
+                                            HttpServletResponse.SC_FORBIDDEN,
+                                            "Forbidden",
+                                            "You do not have permission to access this resource."
+                                    )
                     )
             )
 
             .authorizeHttpRequests(auth -> auth
-                    // Allow Swagger UI and OpenAPI documentation.
+
+                    // Public Swagger and OpenAPI documentation.
                     .requestMatchers(
                             "/swagger-ui/**",
                             "/swagger-ui.html",
                             "/v3/api-docs/**"
-                    ).permitAll()           
+                    ).permitAll()
 
-                    // Registration and login are public.
+                    // Public registration and login.
                     .requestMatchers(
                             HttpMethod.POST,
                             "/api/auth/register"
@@ -167,14 +221,19 @@ public class SecurityConfig {
                             "/api/categories"
                     ).hasAnyRole("ADMIN", "STAFF")
 
+                    // Only ADMIN can list staff for asset assignment.
+                    .requestMatchers(
+                            HttpMethod.GET,
+                            "/api/users"
+                    ).hasRole("ADMIN")
+
                     // Only ADMIN can create categories.
                     .requestMatchers(
                             HttpMethod.POST,
                             "/api/categories"
                     ).hasRole("ADMIN")
 
-                    // ADMIN and STAFF can list assets and view their
-                    // own assigned assets.
+                    // ADMIN and STAFF can list assets.
                     .requestMatchers(
                             HttpMethod.GET,
                             "/api/assets",
@@ -200,7 +259,7 @@ public class SecurityConfig {
                             "/api/assets/*"
                     ).hasRole("ADMIN")
 
-                    // Other endpoints require authentication.
+                    // All remaining endpoints require authentication.
                     .anyRequest().authenticated()
             )
 
@@ -223,8 +282,10 @@ public class SecurityConfig {
             String error,
             String message
     ) throws IOException {
+
         response.setStatus(status);
         response.setContentType("application/json");
+
         objectMapper.writeValue(
                 response.getOutputStream(),
                 Map.of(
